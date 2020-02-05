@@ -1,0 +1,216 @@
+
+---
+title: "Prediction Assignment Writeup"
+author: "Chen Lianghe"
+date: "05/02/2020"
+output: html_document
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit, it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which they did the exercise. We will also use our prediction model to predict 20 different test cases.
+
+Our data consists of a training dataset and a test dataset, courtesy of "Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers’ Data Classification of Body Postures and Movements.”
+
+## Loading of Libraries
+
+```{r}
+
+# Loading of Libraries
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(gbm)
+
+```
+
+## Loading and Processing of Data
+
+```{r}
+
+# Loading the Datasets
+train_in <- read.csv('./pml-training.csv', header=T)
+test_in <- read.csv('./pml-testing.csv', header=T)
+dim(train_in)
+dim(test_in)
+
+```
+
+```{r}
+
+# Cleaning the Datasets
+trainData <- train_in[, colSums(is.na(train_in)) == 0]
+testData <- test_in[, colSums(is.na(test_in)) == 0]
+trainData <- trainData[, -c(1:7)]
+testData <- testData[, -c(1:7)]
+dim(trainData)
+dim(testData)
+
+```
+
+## Preparing Datasets for Prediction
+
+We split the training dataset (trainData) into 70% for training and 30% for cross validation (validData). This will also help us to determine out-of-sample errors. Thereafter, we will use our prediction model to predict 20 different test cases using our test dataset (testData).
+
+```{r}
+
+# Splitting the Training Dataset
+set.seed(1234)
+inTrain <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+trainData <- trainData[inTrain, ]
+validData <- trainData[-inTrain, ]
+dim(trainData)
+dim(validData)
+
+```
+
+```{r}
+
+# Removing Variables that have near zero variances
+NZV <- nearZeroVar(trainData)
+trainData <- trainData[, -NZV]
+validData  <- validData[, -NZV]
+dim(trainData)
+dim(validData)
+
+```
+
+```{r}
+
+# Plotting a Correlation Plot for Training Data
+cor_mat <- cor(trainData[, -53])
+corrplot(cor_mat, order = "FPC", method = "color",
+         type = "upper", tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+
+```
+
+In the correlation plot shown above, the variables that are highly correlated are highlighted at the dark blue intersections. We use a threshold value of 0.75 to determine these highly correlated variables.
+
+```{r}
+
+# Finding Variables that are Highly Correlated in Training Data
+highlyCorrelated = findCorrelation(cor_mat, cutoff=0.75)
+names(trainData)[highlyCorrelated]
+
+```
+
+## Building Prediction Models
+
+For this project, we will use 3 different algorithms for prediction of the outcome. The algorithms are as follows:
+
+  1. Classification Tree
+  2. Random Decision Forests
+  3. Generalized Boosted Models
+
+## Prediction with Classification Tree
+
+```{r}
+
+# Plotting the Classification Tree Prediction Model with Training Data
+set.seed(12345)
+decisionTreeMod1 <- rpart(classe ~ ., data=trainData, method="class")
+fancyRpartPlot(decisionTreeMod1)
+
+```
+
+Next, we cross validate our classification tree prediction model with our validation dataset (validData), to determine the accuracy of this prediction model.
+
+```{r}
+
+# Cross Validating the Classification Tree Prediction Model with Validation Data
+predictTreeMod1 <- predict(decisionTreeMod1, validData, type = "class")
+cmtree <- confusionMatrix(predictTreeMod1, validData$classe)
+cmtree
+
+```
+
+```{r}
+
+# Plotting the Matrix Results
+plot(cmtree$table, col = cmtree$byClass, main = paste("Decision Tree: Accuracy =", round(cmtree$overall['Accuracy'], 4)))
+
+```
+
+From the decision tree shown above, the accuracy of our classification tree prediction model is 0.7642 and therefore, its out-of-sample error is 0.2358.
+
+## Prediction with Random Decision Forests
+
+```{r}
+
+# Plotting the Random Decision Forests Prediction Model with Training Data
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modRF1 <- train(classe ~ ., data=trainData, method="rf", trControl=controlRF)
+modRF1$finalModel
+plot(modRF1)
+
+```
+
+Next, we cross validate our random decision forests prediction model with our validation dataset (validData), to determine the accuracy of this prediction model.
+
+```{r}
+
+# Cross Validating the Random Decision Forests Prediction Model with Validation Data
+predictRF1 <- predict(modRF1, newdata=validData)
+cmrf <- confusionMatrix(predictRF1, validData$classe)
+cmrf
+
+```
+
+```{r}
+
+# Plotting the Matrix Results
+plot(cmrf$table, col = cmrf$byClass, main = paste("Random Decision Forests Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
+
+```
+
+From the random decision forests confusion matrix shown above, the accuracy of our random decision forests prediction model is 1 and therefore, its out-of-sample error is 0.
+
+## Prediction with Generalized Boosted Models
+
+```{r}
+
+# Setting Up the Generalized Boosted Models Prediction Model with Training Data
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=trainData, method = "gbm", trControl = controlGBM, verbose = FALSE)
+modGBM$finalModel
+print(modGBM)
+
+```
+
+```{R}
+
+# Cross Validating the Generalized Boosted Models Prediction Model with Validation Data
+predictGBM <- predict(modGBM, newdata=validData)
+cmGBM <- confusionMatrix(predictGBM, validData$classe)
+cmGBM
+
+```
+
+From the generalized boosted models confusion matrix shown above, the accuracy of our generalized boosted models prediction model is 0.9731 and therefore, its out-of-sample error is 0.0269.
+
+## Best Prediction Model
+
+The accuracy values of the 3 prediction models are as follows:
+
+  1. Classification Tree = 0.7642
+  2. Random Decision Forests = 1.0
+  3. Generalized Boosted Models = 0.9731
+
+From this comparison, we concluded that the Random Decision Forests Prediction Model is the best for our analysis.
+
+```{r}
+
+# Using Random Decision Forests Prediction Model on Test Data
+Results <- predict(modRF1, newdata=testData)
+Results
+
+```
+
+The generated output, "Results" will be used to answer the "Course Project Prediction Quiz".
